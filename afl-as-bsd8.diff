@@ -1,0 +1,22 @@
+diff --git a/afl-as.h b/afl-as.h
+index b224b7b..f087f2c 100644
+--- a/afl-as.h
++++ b/afl-as.h
+@@ -388,7 +388,7 @@ static const u8* main_payload_64 =
+   "\n"
+   "__afl_maybe_log:\n"
+   "\n"
+-#ifdef  __OpenBSD__
++#if defined(__OpenBSD__)  || (defined(__FreeBSD__) && (__FreeBSD__ < 9))
+   "  .byte 0x9f /* lahf */\n"
+ #else
+   "  lahf\n"
+@@ -420,7 +420,7 @@ static const u8* main_payload_64 =
+   "__afl_return:\n"
+   "\n"
+   "  addb $127, %al\n"
+-#ifdef  __OpenBSD__
++#if defined(__OpenBSD__)  || (defined(__FreeBSD__) && (__FreeBSD__ < 9))
+   "  .byte 0x9e /* sahf */\n"
+ #else
+   "  sahf\n"

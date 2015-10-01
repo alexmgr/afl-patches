@@ -1,0 +1,461 @@
+diff --git a/afl-fuzz.c b/afl-fuzz.c
+index 2192d4d..1bfb412 100644
+--- a/afl-fuzz.c
++++ b/afl-fuzz.c
+@@ -7228,13 +7228,36 @@ static void setup_signal_handlers(void) {
+ 
+ static char** get_qemu_argv(u8* own_loc, char** argv, int argc) {
+ 
+-  char** new_argv = ck_alloc(sizeof(char*) * (argc + 4));
+   u8 *tmp, *cp, *rsl, *own_copy;
+ 
+-  memcpy(new_argv + 3, argv + 1, sizeof(char*) * argc);
++#if defined(__gnu_linux__)
++  size_t arg_size = 3;
++// Assume general BSD case here
++#else
++  size_t arg_size = 5;
++#endif
++
++  char** new_argv = ck_alloc(sizeof(char*) * (argc + arg_size + 1));
++  memcpy(new_argv + arg_size, argv + 1, sizeof(char*) * argc);
+ 
++// QEMU requires a -bsd bsd_flavour switch at runtime to select the right set of syscalls
++#if defined(__gnu_linux__)
+   new_argv[2] = target_path;
+   new_argv[1] = "--";
++#else
++  new_argv[4] = target_path;
++  new_argv[3] = "--";
++#if defined(__FreeBSD__)
++  new_argv[2] = "freebsd";
++#elif defined(__OpenBSD__)
++  new_argv[2] = "openbsd";
++#elif defined(__NetBSD__)
++  new_argv[2] = "netbsd";
++#else
++  FATAL("Unsupported QEMU BSD userland");
++#endif
++    new_argv[1] = "-bsd";
++#endif
+ 
+   /* Now we need to actually find the QEMU binary to put in argv[0]. */
+ 
+diff --git a/afl-showmap.c b/afl-showmap.c
+index a534f5b..c547319 100644
+--- a/afl-showmap.c
++++ b/afl-showmap.c
+@@ -509,13 +509,36 @@ static void find_binary(u8* fname) {
+ 
+ static char** get_qemu_argv(u8* own_loc, char** argv, int argc) {
+ 
+-  char** new_argv = ck_alloc(sizeof(char*) * (argc + 4));
+   u8 *tmp, *cp, *rsl, *own_copy;
+ 
+-  memcpy(new_argv + 3, argv + 1, sizeof(char*) * argc);
++#if defined(__gnu_linux__)
++  size_t arg_size = 3;
++// Assume general BSD case here
++#else
++  size_t arg_size = 5;
++#endif
++
++  char** new_argv = ck_alloc(sizeof(char*) * (argc + arg_size + 1));
++  memcpy(new_argv + arg_size, argv + 1, sizeof(char*) * argc);
+ 
++// QEMU requires a -bsd bsd_flavour switch at runtime to select the right set of syscalls
++#if defined(__gnu_linux__)
+   new_argv[2] = target_path;
+   new_argv[1] = "--";
++#else
++  new_argv[4] = target_path;
++  new_argv[3] = "--";
++#if defined(__FreeBSD__)
++  new_argv[2] = "freebsd";
++#elif defined(__OpenBSD__)
++  new_argv[2] = "openbsd";
++#elif defined(__NetBSD__)
++  new_argv[2] = "netbsd";
++#else
++  FATAL("Unsupported QEMU BSD userland");
++#endif
++  new_argv[1] = "-bsd";
++#endif
+ 
+   /* Now we need to actually find qemu for argv[0]. */
+ 
+diff --git a/afl-tmin.c b/afl-tmin.c
+index c9a678b..d8359b8 100644
+--- a/afl-tmin.c
++++ b/afl-tmin.c
+@@ -845,15 +845,38 @@ static void find_binary(u8* fname) {
+ 
+ static char** get_qemu_argv(u8* own_loc, char** argv, int argc) {
+ 
+-  char** new_argv = ck_alloc(sizeof(char*) * (argc + 4));
+   u8 *tmp, *cp, *rsl, *own_copy;
+ 
+-  memcpy(new_argv + 3, argv + 1, sizeof(char*) * argc);
++#if defined(__gnu_linux__)
++  size_t arg_size = 3;
++// Assume general BSD case here
++#else
++  size_t arg_size = 5;
++#endif
+ 
+-  /* Now we need to actually find qemu for argv[0]. */
++  char** new_argv = ck_alloc(sizeof(char*) * (argc + arg_size + 1));
++  memcpy(new_argv + arg_size, argv + 1, sizeof(char*) * argc);
+ 
++// QEMU requires a -bsd bsd_flavour switch at runtime to select the right set of syscalls
++#if defined(__gnu_linux__)
+   new_argv[2] = target_path;
+   new_argv[1] = "--";
++#else
++  new_argv[4] = target_path;
++  new_argv[3] = "--";
++#if defined(__FreeBSD__)
++  new_argv[2] = "freebsd";
++#elif defined(__OpenBSD__)
++  new_argv[2] = "openbsd";
++#elif defined(__NetBSD__)
++  new_argv[2] = "netbsd";
++#else
++  FATAL("Unsupported QEMU BSD userland");
++#endif
++  new_argv[1] = "-bsd";
++#endif
++
++  /* Now we need to actually find qemu for argv[0]. */
+ 
+   tmp = getenv("AFL_PATH");
+ 
+diff --git a/qemu_mode/README.qemu b/qemu_mode/README.qemu
+index 290bd4c..5b42b42 100644
+--- a/qemu_mode/README.qemu
++++ b/qemu_mode/README.qemu
+@@ -48,9 +48,7 @@ directory.
+ 3) Notes on linking
+ -------------------
+ 
+-The feature is supported only on Linux. Supporting BSD may amount to porting
+-the changes made to linux-user/elfload.c and applying them to
+-bsd-user/elfload.c, but I have not looked into this yet.
++The feature is supported on Linux and BSD.
+ 
+ The instrumentation follows only the .text section of the first ELF binary
+ encountered in the linking process. It does not trace shared libraries. In
+diff --git a/qemu_mode/build_qemu_support.sh b/qemu_mode/build_qemu_support.sh
+index 058b963..6c7b827 100755
+--- a/qemu_mode/build_qemu_support.sh
++++ b/qemu_mode/build_qemu_support.sh
+@@ -32,12 +32,23 @@ echo
+ 
+ echo "[*] Performing basic sanity checks..."
+ 
+-if [ ! "`uname -s`" = "Linux" ]; then
+-
+-  echo "[-] Error: QEMU instrumentation is supported only on Linux."
+-  exit 1
+-
+-fi
++case "`uname -s`" in
++  "Linux")
++    MAKE=make
++    OPT_LEVEL=O3
++    USER_TARGET="linux-user"
++    ;;
++  *BSD)
++    MAKE=gmake
++    # QEMU AFL integration dies at runtime with SIGSEGV when O3 is enabled
++    OPT_LEVEL=O2
++    USER_TARGET="bsd-user"
++    ;;
++  *)
++    echo "[-] Error: QEMU instrumentation is supported only on BSD and Linux."
++    exit 1
++    ;;
++esac
+ 
+ if [ ! -f "patches/afl-qemu-cpu-inl.h" -o ! -f "../config.h" ]; then
+ 
+@@ -53,8 +64,10 @@ if [ ! -f "../afl-showmap" ]; then
+ 
+ fi
+ 
++# shasum seems to be portable across Unix/Linux
++DEPS="libtool wget python automake autoconf shasum bison iconv"
+ 
+-for i in libtool wget python automake autoconf sha384sum bison iconv; do
++for i in $DEPS; do
+ 
+   T=`which "$i" 2>/dev/null`
+ 
+@@ -84,8 +97,7 @@ fi
+ echo "[+] All checks passed!"
+ 
+ ARCHIVE="`basename -- "$QEMU_URL"`"
+-
+-CKSUM=`sha384sum -- "$ARCHIVE" 2>/dev/null | cut -d' ' -f1`
++CKSUM=`shasum -a 384 -- "$ARCHIVE" 2>/dev/null | cut -d' ' -f1`
+ 
+ if [ ! "$CKSUM" = "$QEMU_SHA384" ]; then
+ 
+@@ -93,8 +105,7 @@ if [ ! "$CKSUM" = "$QEMU_SHA384" ]; then
+   rm -f "$ARCHIVE"
+   wget -O "$ARCHIVE" -- "$QEMU_URL" || exit 1
+ 
+-  CKSUM=`sha384sum -- "$ARCHIVE" 2>/dev/null | cut -d' ' -f1`
+-
++  CKSUM=`shasum -a 384 -- "$ARCHIVE" 2>/dev/null | cut -d' ' -f1`
+ fi
+ 
+ if [ "$CKSUM" = "$QEMU_SHA384" ]; then
+@@ -117,35 +128,42 @@ echo "[+] Unpacking successful."
+ 
+ echo "[*] Applying patches..."
+ 
+-patch -p0 <patches/elfload.diff || exit 1
++test "$CPU_TARGET" = "" && CPU_TARGET="`uname -m`"
++test "$CPU_TARGET" = "i686" && CPU_TARGET="i386"
++test "$CPU_TARGET" = "amd64" && CPU_TARGET="x86_64"
++
+ patch -p0 <patches/cpu-exec.diff || exit 1
+ patch -p0 <patches/translate-all.diff || exit 1
+-patch -p0 <patches/syscall.diff || exit 1
+ 
+-echo "[+] Patching done."
++if [ "`uname -s`" = "Linux" ]; then
++  patch -p0 <patches/linux/elfload.diff || exit 1
++  patch -p0 <patches/linux/syscall.diff || exit 1
++# Assume BSD case, other cases handling at the beginning of the script
++else
++  patch -p0 <patches/bsd/elfload.diff || exit 1
++fi
+ 
+-test "$CPU_TARGET" = "" && CPU_TARGET="`uname -m`"
+-test "$CPU_TARGET" = "i686" && CPU_TARGET="i386"
++echo "[+] Patching done."
+ 
+ echo "[*] Configuring QEMU for $CPU_TARGET..."
+ 
+ cd qemu-2.3.0 || exit 1
+ 
+-CFLAGS="-O3" ./configure --disable-system --enable-linux-user \
++CFLAGS="-${OPT_LEVEL}" ./configure --disable-system --enable-${USER_TARGET} \
+   --enable-guest-base --disable-gtk --disable-sdl --disable-vnc \
+-  --target-list="${CPU_TARGET}-linux-user" || exit 1
++  --target-list="${CPU_TARGET}-${USER_TARGET}" || exit 1
+ 
+ echo "[+] Configuration complete."
+ 
+ echo "[*] Attempting to build QEMU (fingers crossed!)..."
+ 
+-make || exit 1
++$MAKE || exit 1
+ 
+ echo "[+] Build process successful!"
+ 
+ echo "[*] Copying binary..."
+ 
+-cp -f "${CPU_TARGET}-linux-user/qemu-${CPU_TARGET}" "../../afl-qemu-trace" || exit 1
++cp -f "${CPU_TARGET}-${USER_TARGET}/qemu-${CPU_TARGET}" "../../afl-qemu-trace" || exit 1
+ 
+ cd ..
+ ls -l ../afl-qemu-trace || exit 1
+@@ -156,7 +174,7 @@ echo "[*] Testing the build..."
+ 
+ cd ..
+ 
+-make >/dev/null || exit 1
++$MAKE >/dev/null || exit 1
+ 
+ gcc test-instr.c -o test-instr || exit 1
+ 
+diff --git a/qemu_mode/patches/afl-qemu-cpu-inl.h b/qemu_mode/patches/afl-qemu-cpu-inl.h
+index de5613c..2ae47e5 100644
+--- a/qemu_mode/patches/afl-qemu-cpu-inl.h
++++ b/qemu_mode/patches/afl-qemu-cpu-inl.h
+@@ -130,7 +130,7 @@ static void afl_setup(void) {
+   if (id_str) {
+ 
+     shm_id = atoi(id_str);
+-    afl_area_ptr = shmat(shm_id, NULL, 0);
++    afl_area_ptr = (unsigned char *)shmat(shm_id, NULL, 0);
+ 
+     if (afl_area_ptr == (void*)-1) exit(1);
+ 
+diff --git a/qemu_mode/patches/bsd/elfload.diff b/qemu_mode/patches/bsd/elfload.diff
+new file mode 100644
+index 0000000..b284593
+--- /dev/null
++++ b/qemu_mode/patches/bsd/elfload.diff
+@@ -0,0 +1,30 @@
++diff --git a/bsd-user/elfload.c b/bsd-user/elfload.c
++index 2bf57eb..feb62ad 100644
++--- qemu-2.3.0/bsd-user/elfload.c
+++++ qemu-2.3.0/bsd-user/elfload.c
++@@ -21,6 +21,8 @@
++ #undef ELF_ARCH
++ #endif
++ 
+++extern abi_ulong afl_entry_point, afl_start_code, afl_end_code;
+++
++ /* from personality.h */
++ 
++ /*
++@@ -1563,6 +1565,16 @@ int load_elf_binary(struct linux_binprm * bprm, struct target_pt_regs * regs,
++ 
++     info->entry = elf_entry;
++ 
+++    if (!afl_entry_point) afl_entry_point = info->entry;
+++    if (!afl_start_code) afl_start_code = info->start_code;
+++    if (!afl_end_code) afl_end_code = info->end_code;
+++
+++    if (qemu_log_enabled()) {
+++        qemu_log("AFL elf_entry   0x%016x\n", afl_entry_point);
+++        qemu_log("AFL start_code  0x%016x\n", afl_start_code);
+++        qemu_log("AFL end_code    0x%016x\n", afl_end_code);
+++    }
+++
++     return 0;
++ }
++ 
+diff --git a/qemu_mode/patches/elfload.diff b/qemu_mode/patches/elfload.diff
+deleted file mode 100644
+index 325c917..0000000
+--- a/qemu_mode/patches/elfload.diff
++++ /dev/null
+@@ -1,32 +0,0 @@
+---- qemu-2.3.0/linux-user/elfload.c.orig	2014-12-09 14:45:42.000000000 +0000
+-+++ qemu-2.3.0/linux-user/elfload.c	2015-01-28 02:51:23.719000000 +0000
+-@@ -28,6 +28,8 @@
+- 
+- #define ELF_OSABI   ELFOSABI_SYSV
+- 
+-+extern abi_ulong afl_entry_point, afl_start_code, afl_end_code;
+-+
+- /* from personality.h */
+- 
+- /*
+-@@ -1889,6 +1891,8 @@
+-     info->brk = 0;
+-     info->elf_flags = ehdr->e_flags;
+- 
+-+    if (!afl_entry_point) afl_entry_point = info->entry;
+-+
+-     for (i = 0; i < ehdr->e_phnum; i++) {
+-         struct elf_phdr *eppnt = phdr + i;
+-         if (eppnt->p_type == PT_LOAD) {
+-@@ -1922,9 +1926,11 @@
+-             if (elf_prot & PROT_EXEC) {
+-                 if (vaddr < info->start_code) {
+-                     info->start_code = vaddr;
+-+                    if (!afl_start_code) afl_start_code = vaddr;
+-                 }
+-                 if (vaddr_ef > info->end_code) {
+-                     info->end_code = vaddr_ef;
+-+                    if (!afl_end_code) afl_end_code = vaddr_ef;
+-                 }
+-             }
+-             if (elf_prot & PROT_WRITE) {
+diff --git a/qemu_mode/patches/linux/elfload.diff b/qemu_mode/patches/linux/elfload.diff
+new file mode 100644
+index 0000000..325c917
+--- /dev/null
++++ b/qemu_mode/patches/linux/elfload.diff
+@@ -0,0 +1,32 @@
++--- qemu-2.3.0/linux-user/elfload.c.orig	2014-12-09 14:45:42.000000000 +0000
+++++ qemu-2.3.0/linux-user/elfload.c	2015-01-28 02:51:23.719000000 +0000
++@@ -28,6 +28,8 @@
++ 
++ #define ELF_OSABI   ELFOSABI_SYSV
++ 
+++extern abi_ulong afl_entry_point, afl_start_code, afl_end_code;
+++
++ /* from personality.h */
++ 
++ /*
++@@ -1889,6 +1891,8 @@
++     info->brk = 0;
++     info->elf_flags = ehdr->e_flags;
++ 
+++    if (!afl_entry_point) afl_entry_point = info->entry;
+++
++     for (i = 0; i < ehdr->e_phnum; i++) {
++         struct elf_phdr *eppnt = phdr + i;
++         if (eppnt->p_type == PT_LOAD) {
++@@ -1922,9 +1926,11 @@
++             if (elf_prot & PROT_EXEC) {
++                 if (vaddr < info->start_code) {
++                     info->start_code = vaddr;
+++                    if (!afl_start_code) afl_start_code = vaddr;
++                 }
++                 if (vaddr_ef > info->end_code) {
++                     info->end_code = vaddr_ef;
+++                    if (!afl_end_code) afl_end_code = vaddr_ef;
++                 }
++             }
++             if (elf_prot & PROT_WRITE) {
+diff --git a/qemu_mode/patches/linux/syscall.diff b/qemu_mode/patches/linux/syscall.diff
+new file mode 100644
+index 0000000..75d3938
+--- /dev/null
++++ b/qemu_mode/patches/linux/syscall.diff
+@@ -0,0 +1,25 @@
++--- qemu-2.3.0/linux-user/syscall.c.orig	2014-12-09 14:45:43.000000000 +0000
+++++ qemu-2.3.0/linux-user/syscall.c	2015-03-27 06:33:00.736000000 +0000
++@@ -227,7 +227,21 @@
++ _syscall3(int,sys_rt_sigqueueinfo,int,pid,int,sig,siginfo_t *,uinfo)
++ _syscall3(int,sys_syslog,int,type,char*,bufp,int,len)
++ #if defined(TARGET_NR_tgkill) && defined(__NR_tgkill)
++-_syscall3(int,sys_tgkill,int,tgid,int,pid,int,sig)
+++
+++extern unsigned int afl_forksrv_pid;
+++
+++static int sys_tgkill(int tgid, int pid, int sig) {
+++
+++  /* Workaround for -lpthread to make abort() work properly, without
+++     killing the forkserver due to a prematurely cached PID. */
+++
+++  if (afl_forksrv_pid && afl_forksrv_pid == pid && sig == SIGABRT)
+++    pid = tgid = getpid();
+++
+++  return syscall(__NR_sys_tgkill, pid, tgid, sig);
+++
+++}
+++
++ #endif
++ #if defined(TARGET_NR_tkill) && defined(__NR_tkill)
++ _syscall2(int,sys_tkill,int,tid,int,sig)
+diff --git a/qemu_mode/patches/syscall.diff b/qemu_mode/patches/syscall.diff
+deleted file mode 100644
+index 75d3938..0000000
+--- a/qemu_mode/patches/syscall.diff
++++ /dev/null
+@@ -1,25 +0,0 @@
+---- qemu-2.3.0/linux-user/syscall.c.orig	2014-12-09 14:45:43.000000000 +0000
+-+++ qemu-2.3.0/linux-user/syscall.c	2015-03-27 06:33:00.736000000 +0000
+-@@ -227,7 +227,21 @@
+- _syscall3(int,sys_rt_sigqueueinfo,int,pid,int,sig,siginfo_t *,uinfo)
+- _syscall3(int,sys_syslog,int,type,char*,bufp,int,len)
+- #if defined(TARGET_NR_tgkill) && defined(__NR_tgkill)
+--_syscall3(int,sys_tgkill,int,tgid,int,pid,int,sig)
+-+
+-+extern unsigned int afl_forksrv_pid;
+-+
+-+static int sys_tgkill(int tgid, int pid, int sig) {
+-+
+-+  /* Workaround for -lpthread to make abort() work properly, without
+-+     killing the forkserver due to a prematurely cached PID. */
+-+
+-+  if (afl_forksrv_pid && afl_forksrv_pid == pid && sig == SIGABRT)
+-+    pid = tgid = getpid();
+-+
+-+  return syscall(__NR_sys_tgkill, pid, tgid, sig);
+-+
+-+}
+-+
+- #endif
+- #if defined(TARGET_NR_tkill) && defined(__NR_tkill)
+- _syscall2(int,sys_tkill,int,tid,int,sig)
